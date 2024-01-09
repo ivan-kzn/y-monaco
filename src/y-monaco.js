@@ -10,7 +10,7 @@ class RelativeSelection {
    * @param {Y.RelativePosition} end
    * @param {monaco.SelectionDirection} direction
    */
-  constructor (start, end, direction) {
+  constructor(start, end, direction) {
     this.start = start
     this.end = end
     this.direction = direction
@@ -60,7 +60,7 @@ export class MonacoBinding {
    * @param {Set<monaco.editor.IStandaloneCodeEditor>} [editors]
    * @param {Awareness?} [awareness]
    */
-  constructor (ytext, monacoModel, editors = new Set(), awareness = null) {
+  constructor(ytext, monacoModel, editors = new Set(), awareness = null) {
     this.doc = /** @type {Y.Doc} */ (ytext.doc)
     this.ytext = ytext
     this.monacoModel = monacoModel
@@ -95,31 +95,36 @@ export class MonacoBinding {
            */
           const newDecorations = []
           awareness.getStates().forEach((state, clientID) => {
-            if (clientID !== this.doc.clientID && state.selection != null && state.selection.anchor != null && state.selection.head != null) {
-              const anchorAbs = Y.createAbsolutePositionFromRelativePosition(state.selection.anchor, this.doc)
-              const headAbs = Y.createAbsolutePositionFromRelativePosition(state.selection.head, this.doc)
-              if (anchorAbs !== null && headAbs !== null && anchorAbs.type === ytext && headAbs.type === ytext) {
-                let start, end, afterContentClassName, beforeContentClassName
-                if (anchorAbs.index < headAbs.index) {
-                  start = monacoModel.getPositionAt(anchorAbs.index)
-                  end = monacoModel.getPositionAt(headAbs.index)
-                  afterContentClassName = 'yRemoteSelectionHead yRemoteSelectionHead-' + clientID
-                  beforeContentClassName = null
-                } else {
-                  start = monacoModel.getPositionAt(headAbs.index)
-                  end = monacoModel.getPositionAt(anchorAbs.index)
-                  afterContentClassName = null
-                  beforeContentClassName = 'yRemoteSelectionHead yRemoteSelectionHead-' + clientID
+            if (clientID !== this.doc.clientID && state.selections != null) {
+              state.selections.forEach((selection) => {
+                if (selection.anchor === null && selection.head === null) {
+                  return
                 }
-                newDecorations.push({
-                  range: new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column),
-                  options: {
-                    className: 'yRemoteSelection yRemoteSelection-' + clientID,
-                    afterContentClassName,
-                    beforeContentClassName
+                const anchorAbs = Y.createAbsolutePositionFromRelativePosition(selection.anchor, this.doc)
+                const headAbs = Y.createAbsolutePositionFromRelativePosition(selection.head, this.doc)
+                if (anchorAbs !== null && headAbs !== null && anchorAbs.type === ytext && headAbs.type === ytext) {
+                  let start, end, afterContentClassName, beforeContentClassName
+                  if (anchorAbs.index < headAbs.index) {
+                    start = monacoModel.getPositionAt(anchorAbs.index)
+                    end = monacoModel.getPositionAt(headAbs.index)
+                    afterContentClassName = 'yRemoteSelectionHead yRemoteSelectionHead-' + clientID
+                    beforeContentClassName = null
+                  } else {
+                    start = monacoModel.getPositionAt(headAbs.index)
+                    end = monacoModel.getPositionAt(anchorAbs.index)
+                    afterContentClassName = null
+                    beforeContentClassName = 'yRemoteSelectionHead yRemoteSelectionHead-' + clientID
                   }
-                })
-              }
+                  newDecorations.push({
+                    range: new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column),
+                    options: {
+                      className: 'yRemoteSelection yRemoteSelection-' + clientID,
+                      afterContentClassName,
+                      beforeContentClassName
+                    }
+                  })
+                }
+              })              
             }
           })
           this._decorations.set(editor, editor.deltaDecorations(currentDecorations, newDecorations))
@@ -187,21 +192,27 @@ export class MonacoBinding {
       editors.forEach(editor => {
         editor.onDidChangeCursorSelection(() => {
           if (editor.getModel() === monacoModel) {
-            const sel = editor.getSelection()
-            if (sel === null) {
+            const selections = editor.getSelections();
+            if (selections === null) {
               return
             }
-            let anchor = monacoModel.getOffsetAt(sel.getStartPosition())
-            let head = monacoModel.getOffsetAt(sel.getEndPosition())
-            if (sel.getDirection() === monaco.SelectionDirection.RTL) {
-              const tmp = anchor
-              anchor = head
-              head = tmp
-            }
-            awareness.setLocalStateField('selection', {
-              anchor: Y.createRelativePositionFromTypeIndex(ytext, anchor),
-              head: Y.createRelativePositionFromTypeIndex(ytext, head)
+
+            const yTextSelections = []
+            selections.forEach(sel => {
+              let anchor = monacoModel.getOffsetAt(sel.getStartPosition())
+              let head = monacoModel.getOffsetAt(sel.getEndPosition())
+              if (sel.getDirection() === monaco.SelectionDirection.RTL) {
+                const tmp = anchor
+                anchor = head
+                head = tmp
+              }
+              yTextSelections.push({
+                anchor: Y.createRelativePositionFromTypeIndex(yText, anchor),
+                head: Y.createRelativePositionFromTypeIndex(yText, head),
+              })
             })
+
+            awareness.setLocalStateField('selections', yTextSelections)
           }
         })
         awareness.on('change', this._rerenderDecorations)
@@ -210,7 +221,7 @@ export class MonacoBinding {
     }
   }
 
-  destroy () {
+  destroy() {
     this._monacoChangeHandler.dispose()
     this.ytext.unobserve(this._ytextObserver)
     this.doc.off('beforeAllTransactions', this._beforeTransaction)
